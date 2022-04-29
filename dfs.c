@@ -41,7 +41,7 @@ void put_file(int sockfd, char* dir_name, char* filename, char* chunk_size){
 	bzero(full_filepath, HEADER_SIZE);
 	strcpy(full_filepath, dir_name);
 	strcat(full_filepath, "/");
-	strcat(full_filepath, "filename");
+	strcat(full_filepath, filename);
 
 	FILE* fp = fopen(full_filepath, "w+");
 	if(fp == NULL){
@@ -59,16 +59,96 @@ void put_file(int sockfd, char* dir_name, char* filename, char* chunk_size){
 		fwrite(recvbuf, 1, FILE_SIZE_PART, fp);
 		bzero(recvbuf, FILE_SIZE_PART);
 	}
-	
-	if (send(sockfd, "Hello, world!", 13, 0) == -1){
-		error("Could not send\n");
-	}
 
 	fclose(fp);
 }
 
-void handle_client(int sockfd){
+void get_file(int sockfd, char* filename, char* dirname){
+	// open file, read and then send to client
+	char full_filepath[HEADER_SIZE];
+	bzero(full_filepath, HEADER_SIZE);
+	strcpy(full_filepath, dirname);
+	strcat(full_filepath, "/");
+	strcat(full_filepath, filename);
 
+	int filesize;
+	FILE* fp = fopen(full_filepath, "r");
+	if(fp == NULL){
+		error("Could not open file\n");
+	}
+
+	fseek(fp, 0L, SEEK_END);
+    filesize = ftell(fp);
+    fseek(fp, 0L, SEEK_SET);
+
+	// first want to send to client the filesize
+	char filesize_str[32];
+    bzero(filesize_str, 32);
+    sprintf(filesize_str, "%d", filesize);
+
+	send(sockfd, filesize_str, 32, 0);
+
+    int num_sends = filesize/FILE_SIZE_PART + ((filesize % FILE_SIZE_PART) != 0); 
+    char file_contents[FILE_SIZE_PART];
+
+    for(int i=0; i < num_sends; i++){
+        bzero(file_contents, FILE_SIZE_PART);
+        int n = fread(file_contents, 1, FILE_SIZE_PART, fp);
+
+        if( n < 0){
+            error("Could not fread\n");
+        }
+
+        if(send(sockfd, file_contents, n, 0) < 0){
+            error("Send to client failed\n");
+        }
+    }
+
+	// find filesize
+	// read into chunksize
+	// send each to client
+}
+
+void list_files(int sockfd, char* dirname){
+	printf("In list files\n");
+	//loop through all directories and remove all instances of that filename
+	char send_fin[HEADER_SIZE];
+	bzero(send_fin, HEADER_SIZE);
+	strcpy(send_fin, "\r\n\r\n");
+
+	char ls_command[HEADER_SIZE];
+	bzero(ls_command, HEADER_SIZE);
+	strcpy(ls_command, "ls -R ");
+	strcat(ls_command, dirname);
+
+	printf("ls_command: %s\n", ls_command);
+
+	FILE *ls_fp = popen(ls_command, "r");
+	if(ls_fp == NULL){
+		error("Could not ls\n");
+	}
+
+	char curr_file[HEADER_SIZE];
+	bzero(curr_file, HEADER_SIZE);
+	int i = 0;
+	while(fgets(curr_file, HEADER_SIZE, ls_fp) != NULL){
+		if(i != 0){
+			char file_dir[HEADER_SIZE];
+			bzero(file_dir, HEADER_SIZE);
+			strncpy(file_dir, curr_file, strlen(curr_file) - 1);
+			strcat(file_dir, " ");
+			strcat(file_dir, dirname);
+			strcat(file_dir, "\n");
+			// printf("curr_file: %s\n", curr_file);
+			send(sockfd, file_dir, HEADER_SIZE, 0);
+		}
+		i = i+1;
+	}
+	send(sockfd, send_fin, HEADER_SIZE, 0);
+	pclose(ls_fp);	
+}
+
+void handle_client(int sockfd){
 	// first read header that client sends
 	char header_buf[HEADER_SIZE];
 	bzero(header_buf, HEADER_SIZE);
@@ -76,12 +156,17 @@ void handle_client(int sockfd){
 
 	char* parsed_elements[4];
 	parse_header(header_buf, parsed_elements);
-	for(int i=0; i<4; i++){
-		printf("parsed elements: %s\n", parsed_elements[i]);
-	}
 
 	if(strncmp(parsed_elements[0], "put", 3) == 0){
 		put_file(sockfd, parsed_elements[1], parsed_elements[2], parsed_elements[3]);
+	}
+
+	if(strncmp(parsed_elements[0], "list", 4) == 0){
+		list_files(sockfd, parsed_elements[1]);
+	}
+
+	if(strncmp(parsed_elements[0], "get", 3) == 0){
+		get_file(sockfd, parsed_elements[1], parsed_elements[2]);
 	}
 
 }

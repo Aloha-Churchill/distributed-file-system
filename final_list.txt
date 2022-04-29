@@ -1,0 +1,3 @@
+hamlet.txt
+piano.pdf
+rabbit.jpg

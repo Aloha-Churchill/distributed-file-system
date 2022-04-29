@@ -1,0 +1,8 @@
+hamlet.txt0 dfs1
+hamlet.txt0 dfs4
+hamlet.txt1 dfs1
+hamlet.txt1 dfs2
+hamlet.txt2 dfs2
+hamlet.txt2 dfs3
+hamlet.txt3 dfs3
+hamlet.txt3 dfs4
