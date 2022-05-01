@@ -5,35 +5,15 @@
 // connection timeout after 1 second
 // put file should be completed
 
+//base from beej's guide
+
 */
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
-#include <netdb.h>
-#include <sys/types.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <openssl/md5.h>
-
 
 #include "helpers.h"
 
-#define PORT "3490" // the port client will be connecting to 
-// instead, we will read dfc.conf file and parse the ip addresses and port numbers
-// make file size part 1 so no remainders?
-#define FILE_SIZE_PART 1
-#define HEADER_SIZE 256
 #define CONF_FILE_SIZE 4000
-
-#define MAXDATASIZE 100 // max number of bytes we can get at once 
 #define CONF_LINE_SIZE 512
 #define NUM_SERVERS 4
-
 
 // get sockaddr, IPv4 or IPv6:
 void *get_in_addr(struct sockaddr *sa){
@@ -44,8 +24,9 @@ void *get_in_addr(struct sockaddr *sa){
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-void send_put_header(int chunk_size, char* directory, char* filename, int sockfd){
-    // format: put directory filename filesize\r\n\r\n
+void send_put_header(int sockfd, char* filename, char* directory, int chunk_size){
+    // format: put directory filename filesize\n
+
     char put_header[HEADER_SIZE];
     bzero(put_header, HEADER_SIZE);
 
@@ -63,10 +44,14 @@ void send_put_header(int chunk_size, char* directory, char* filename, int sockfd
 
     printf("Header is: %s\n", put_header);
 
-    send(sockfd, put_header, HEADER_SIZE, 0);
+    int header_size = HEADER_SIZE;
+
+    int res = sendall(sockfd, put_header, &header_size);
+    if(res < 0){
+        error("Could not sendall\n");
+    }
 
 }
-
 
 /*
 Takes the md5 hash of the URI and converts it to a string representation
@@ -80,7 +65,6 @@ int md5_hash(char* original_name){
     MD5_Update(&c, original_name, strlen(original_name));
     MD5_Final(out, &c);
 
-    //int bucket = (int)strtol(out, NULL, 0) % 4;
     // code from https://stackoverflow.com/questions/11180028/converting-md5-result-into-an-integer-in-c
     unsigned long long v1 = *(unsigned long long*)(out);
     unsigned long long v2 = *(unsigned long long*)(out + 8);
@@ -90,47 +74,13 @@ int md5_hash(char* original_name){
     int hash = v1 ^ v2 ^ v3 ^v4;
     int bucket = abs(hash % 4);
     return bucket;
-
 }
 
-void send_file(int file_chunk_size, char* folder, char* filename, int sockfd, FILE* file_fp){
-    //int numbytes;
-    //char buf[MAXDATASIZE];
-
-    // if put is the option
-    send_put_header(file_chunk_size, folder, filename, sockfd);
-
-    // first we send a header to the server
-    // then we send data one character at a time until chunk size is over
-    int num_sends = file_chunk_size/FILE_SIZE_PART + ((file_chunk_size % FILE_SIZE_PART) != 0); 
-    char file_contents[FILE_SIZE_PART];
-
-    for(int i=0; i < num_sends; i++){
-        bzero(file_contents, FILE_SIZE_PART);
-        int n = fread(file_contents, 1, FILE_SIZE_PART, file_fp);
-
-        if( n < 0){
-            error("Could not fread\n");
-        }
-
-        if(send(sockfd, file_contents, n, 0) < 0){
-            error("Send to client failed\n");
-        }
-
-    }
-
-    /*
-    if ((numbytes = recv(sockfd, buf, MAXDATASIZE-1, 0)) == -1) {
-        perror("recv");
-        exit(1);
-    }
-
-    buf[numbytes] = '\0';
-    printf("client: received '%s'\n",buf);
-    */
+void send_put(int sockfd, char* filename, char* folder, FILE* file_fp, int file_chunk_size){
+    send_put_header(sockfd, filename, folder, file_chunk_size);
+    int num_s = read_file_send(sockfd, file_fp, file_chunk_size);
+    printf("Num bytes sent: %d\n", num_s);
 }
-
-
 
 void send_get(int sockfd, char* dir_name, char* filename, FILE* fp){
     char get_request[HEADER_SIZE];
@@ -143,29 +93,23 @@ void send_get(int sockfd, char* dir_name, char* filename, FILE* fp){
 
     printf("---------request: %s\n", get_request);
 
-    send(sockfd, get_request, HEADER_SIZE, 0);
+    // set request to server
+    int header_size = HEADER_SIZE;
+    sendall(sockfd, get_request, &header_size);
 
     char filesize_str[32];
     bzero(filesize_str, 32);
 
-    recv(sockfd, filesize_str, 32, 0);
-
+    // recieve filesize
+    if(recv(sockfd, filesize_str, 32, 0) < 0){
+        error("Error in recv\n");
+    }
+    printf("Client says filesize is: %s\n", filesize_str);
     int filesize = atoi(filesize_str);
 
-    int num_recieves = filesize/FILE_SIZE_PART + ((filesize % FILE_SIZE_PART) != 0); 
-    char file_contents[FILE_SIZE_PART];
-
-    for(int i=0; i < num_recieves; i++){
-        bzero(file_contents, FILE_SIZE_PART);
-        int n = recv(sockfd, file_contents, FILE_SIZE_PART, 0);
-
-        if( n < 0){
-            error("Could not recv\n");
-        }
-
-        fwrite(file_contents, 1, FILE_SIZE_PART, fp);
-    }
-    
+    // recieve and write file
+    int num_r = recv_write_file(sockfd, fp, filesize);
+    printf("Number of bytes recieved: %d\n", num_r);
 }
 
 void send_list(int sockfd, char* dir_name, FILE* list_fp){
@@ -178,7 +122,8 @@ void send_list(int sockfd, char* dir_name, FILE* list_fp){
 
     printf("Header is: %s\n", list_request);
 
-    send(sockfd, list_request, HEADER_SIZE, 0);
+    int header_size = HEADER_SIZE;
+    sendall(sockfd, list_request, &header_size);
 
     char filenames[HEADER_SIZE];
     bzero(filenames, HEADER_SIZE);
@@ -200,6 +145,7 @@ void send_list(int sockfd, char* dir_name, FILE* list_fp){
 
 int connect_to_server(int option, int serv_index, char* dir_names[], char* ip_addrs[], char* port_nums[], char* filename, FILE* file_fp, int file_chunk_size){
     // options: 0 = put, 1 = get, 2 = list
+
     int sockfd;  
 	struct addrinfo hints, *servinfo;
 	char s[INET6_ADDRSTRLEN];
@@ -227,8 +173,8 @@ int connect_to_server(int option, int serv_index, char* dir_names[], char* ip_ad
     }
     int sockfd_nonblocking = fcntl(sockfd, F_GETFL, 0);
     fcntl(sockfd, F_SETFL, O_NONBLOCK);
-    // try to connect to server, times out after 1 second --> code from https://stackoverflow.com/questions/2597608/c-socket-connection-timeout
-    // http://developerweb.net/viewtopic.php?id=3196. 
+
+    // nonblocking implementation from http://developerweb.net/viewtopic.php?id=3196. 
     res = connect(sockfd, servinfo->ai_addr, servinfo->ai_addrlen);
     int server_available = 0;
 
@@ -253,7 +199,6 @@ int connect_to_server(int option, int serv_index, char* dir_names[], char* ip_ad
                     if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, (void*)(&valopt), &lon) < 0) { 
                         server_available = -1;
                     } 
-                    // Check the value returned... 
                     if (valopt) {
                         server_available = -1;
                     } 
@@ -272,16 +217,15 @@ int connect_to_server(int option, int serv_index, char* dir_names[], char* ip_ad
     }
     fcntl(sockfd, F_SETFL, sockfd_nonblocking);
 
-    freeaddrinfo(servinfo); // all done with this structure
 
     if(server_available == 0){
         if(option == 0){
             inet_ntop(servinfo->ai_family, get_in_addr((struct sockaddr *)servinfo->ai_addr), s, sizeof s);
             printf("client: connecting to %s\n", s);
-            send_file(file_chunk_size, dir_names[serv_index], filename, sockfd, file_fp);
+            send_put(sockfd, filename, dir_names[serv_index], file_fp, file_chunk_size);
+            
         }
         if(option == 1){
-            // get
             send_get(sockfd, dir_names[serv_index], filename, file_fp);
         }
         if(option == 2){
@@ -291,6 +235,7 @@ int connect_to_server(int option, int serv_index, char* dir_names[], char* ip_ad
     else{
         return -1;
     }
+    freeaddrinfo(servinfo);
 	close(sockfd);
     return 0;
 
@@ -300,7 +245,7 @@ int connect_to_server(int option, int serv_index, char* dir_names[], char* ip_ad
 void list_files(char* dir_names[], char* port_nums[], char* ip_addrs[]){
     FILE* list_fp = fopen("list_file.txt", "w+");
     if(list_fp == NULL){
-        error("Error with popen\n");
+        error("Error with fopen\n");
     }
 
     for(int i=0; i<NUM_SERVERS; i++){
@@ -309,15 +254,14 @@ void list_files(char* dir_names[], char* port_nums[], char* ip_addrs[]){
             printf("Could not connect to server\n");
         }
     }
-
+    fclose(list_fp);
     
+
     FILE* final_list_fp = fopen("final_list.txt", "w+");
     if(final_list_fp == NULL){
-        error("Error with popen\n");
+        error("Error with fopen\n");
     }
     
-    fclose(list_fp);
-
     FILE* sort_fp = popen("awk '{print $1}' list_file.txt | sort -u", "r");
     if(sort_fp == NULL){
         error("Error in popen\n");
@@ -350,7 +294,7 @@ void list_files(char* dir_names[], char* port_nums[], char* ip_addrs[]){
 
                 strncpy(store_buf, prev_filename, strlen(prev_filename)-2);
 
-                if(num_sections >= 3){
+                if(num_sections >= NUM_SERVERS-1){
                     strcat(store_buf, "\n");
                     fwrite(store_buf, 1, strlen(store_buf), final_list_fp); 
                 }
@@ -366,6 +310,7 @@ void list_files(char* dir_names[], char* port_nums[], char* ip_addrs[]){
         i += 1;
         printf("Got: %s\n", filename);
     }
+
     char store_buf[HEADER_SIZE];
     bzero(store_buf, HEADER_SIZE);
     strncpy(store_buf, prev_filename, strlen(prev_filename)-2);
@@ -390,11 +335,11 @@ void get_files(char* filename, char* dir_names[], char* port_nums[], char* ip_ad
     bzero(full_filepath, HEADER_SIZE);
     strcpy(full_filepath, "get_files/");
     strcat(full_filepath, filename);
-    FILE* fp = fopen(full_filepath, "w+");
+    FILE* fp = fopen(full_filepath, "w+"); //w+
 
     char num_command_buf[HEADER_SIZE];
     bzero(num_command_buf, HEADER_SIZE);
-    strcpy(num_command_buf, "sort -k1,1 -fsu test_file.txt | grep ");
+    strcpy(num_command_buf, "sort -k1,1 -fsu list_file.txt | grep ");
     strcat(num_command_buf, filename);
     strcat(num_command_buf, " | wc -l");
 
@@ -402,6 +347,8 @@ void get_files(char* filename, char* dir_names[], char* port_nums[], char* ip_ad
     if(wc_fp == NULL){
         error("Error in popen\n");
     }
+
+    // getting filesize
     char number[5];
     bzero(number, 5);
     int num_pieces = 0;
@@ -416,7 +363,7 @@ void get_files(char* filename, char* dir_names[], char* port_nums[], char* ip_ad
     else{
         char command_buf[HEADER_SIZE];
         bzero(command_buf, HEADER_SIZE);
-        strcpy(command_buf, "sort -k1,1 -fsu test_file.txt | grep ");
+        strcpy(command_buf, "sort -k1,1 -fsu list_file.txt | grep ");
         strcat(command_buf, filename);
 
         FILE* get_fp = popen(command_buf, "r");
@@ -473,25 +420,23 @@ void get_files(char* filename, char* dir_names[], char* port_nums[], char* ip_ad
 
 void put_files(char* filename, char* dir_names[], char* port_nums[], char* ip_addrs[]){
     // process file, get length, perform MD5 hash to find which server to connect to first
-    int num_servers_up = 0; 
-    int filesize;
     int file_positions[4];
     int file_sizes[4];
-    int hash = md5_hash(filename);
     int ret;
+    int hash = md5_hash(filename);
 
-    printf("Hash of file is: %d\n", hash);
+    printf("Hash number of file is: %d\n", hash);
+    printf("Original filename is: %s\n", filename);
 
     FILE *file_fp = fopen(filename, "r");
     if(file_fp == NULL){
         error("Could not open file\n");
     }
-    fseek(file_fp, 0L, SEEK_END);
-    filesize = ftell(file_fp);
-    fseek(file_fp, 0L, SEEK_SET);
 
-    int chunk_size = filesize/4;
-    int remainder = filesize%4;
+    int filesize = get_file_size(file_fp);
+
+    int chunk_size = filesize/NUM_SERVERS;
+    int remainder = filesize%NUM_SERVERS;
 
     printf("Chunk size of file: %d\n", chunk_size);
     printf("Remainder size of file: %d\n", remainder);
@@ -506,51 +451,53 @@ void put_files(char* filename, char* dir_names[], char* port_nums[], char* ip_ad
         file_positions[i] = i*chunk_size; 
     }
 
-    const char* indices[] = {"0", "1", "2", "3"};
+    //const char* indices[] = {"0", "1", "2", "3"};
+    const char indices[] = {'0', '1', '2', '3'};
 
+    char send_filename[HEADER_SIZE];
+    bzero(send_filename, HEADER_SIZE);
+    strcpy(send_filename, filename);
 
+    int all_servers_up = 0;
     for(int i=0; i<NUM_SERVERS; i++){
-        char filename_one[HEADER_SIZE];
-        bzero(filename_one, HEADER_SIZE);
-        strcpy(filename_one, filename);
-        strcat(filename_one, indices[i]);
 
-        int index = (i+hash)%4;
+        //int index = (i-hash)%4;
+        int index = modulo(i-hash, NUM_SERVERS);
+
+        send_filename[strlen(filename)] = indices[index];
+        printf("index: %d\n", index);
+        printf("send_filename: %s\n", send_filename);
+
         fseek(file_fp, file_positions[index], SEEK_SET);
         int file_chunk_size = file_sizes[index];
 
-        ret = connect_to_server(0, i, dir_names, ip_addrs, port_nums, filename_one, file_fp, file_chunk_size);
+        ret = connect_to_server(0, i, dir_names, ip_addrs, port_nums, send_filename, file_fp, file_chunk_size);
         if(ret < 0){
-            if(num_servers_up > 0){
-                // send_remove(sockfd, filename, dir_names);
-            }
+            all_servers_up = -1;
             break;
         }
 
-        char filename_two[HEADER_SIZE];
-        bzero(filename_two, HEADER_SIZE);
-        strcpy(filename_two, filename);
-        strcat(filename_two, indices[(i+1)%4]);
-        
-        index = (i+hash+1)%4;
+        //index = (i-hash+1)%4;
+        index = modulo(i-hash+1, NUM_SERVERS);
+        send_filename[strlen(filename)] = indices[index];
+
         fseek(file_fp, file_positions[index], SEEK_SET);
         file_chunk_size = file_sizes[index];
 
-        ret = connect_to_server(0, i, dir_names, ip_addrs, port_nums, filename_two, file_fp, file_chunk_size);
+        ret = connect_to_server(0, i, dir_names, ip_addrs, port_nums, send_filename, file_fp, file_chunk_size);
         if(ret < 0){
-            if(num_servers_up > 0){
-                // send_remove(sockfd, filename, dir_names);
-            }
+            all_servers_up = -1;
             break;
         }
-
-        num_servers_up += 1;
     }
-
+    if(all_servers_up == -1){
+        printf("Could not put file since all servers are not up\n");
+    }
+    else{
+        printf("Put file successfully\n");
+    }
     fclose(file_fp);
-
 }
-
 
 void parse_configuration(char* dir_names[], char* port_nums[], char* ip_addrs[]){
     FILE *fp = fopen("dfc.conf", "r");
@@ -596,9 +543,7 @@ void parse_configuration(char* dir_names[], char* port_nums[], char* ip_addrs[])
 
 int main(int argc, char *argv[])
 {
-    // read dfc.conf here and then pass it into methods
-    // dfc.conf should create 3 separate lists. Dir list, ip list, port list
-
+ 
 	if (argc < 2) {
 	    error("./dfc [command] [filename] ... [filename]");
 	}
@@ -607,18 +552,32 @@ int main(int argc, char *argv[])
     char* port_nums[NUM_SERVERS];
     char* ip_addrs[NUM_SERVERS];
 
-    parse_configuration(dir_names, port_nums, ip_addrs);
-
     if(strncmp(argv[1], "list", 4) == 0){
         printf("LIST COMMAND\n");
         if(argc > 2){
             error("Incorrect number of arguments for list\n");
         }  
+        parse_configuration(dir_names, port_nums, ip_addrs);
         list_files(dir_names, port_nums, ip_addrs);
+
+        FILE* fp = fopen("final_list.txt", "r");
+        if(fp == NULL){
+            error("Could not get fp\n");
+        }
+        char buffer[HEADER_SIZE];
+        bzero(buffer, HEADER_SIZE);
+
+        while(fgets(buffer, HEADER_SIZE, fp)){
+            buffer[strcspn(buffer, "\n")] = 0;
+            printf("%s\n", buffer);
+            bzero(buffer, HEADER_SIZE);
+        }
+        fclose(fp);
     }
     else if(strncmp(argv[1], "get", 3) == 0){
         printf("GET COMMAND\n");
         for(int i=2; i<argc; i++){
+            parse_configuration(dir_names, port_nums, ip_addrs);
             list_files(dir_names, port_nums, ip_addrs);
             parse_configuration(dir_names, port_nums, ip_addrs);
             get_files(argv[i], dir_names, port_nums, ip_addrs);
@@ -626,16 +585,14 @@ int main(int argc, char *argv[])
     }
     else if(strncmp(argv[1], "put", 3) == 0){
         printf("PUT COMMAND\n");
-        // put files should take in a list of filenames
-        // for each filename, put that file
         for(int i=2; i<argc; i++){
+            parse_configuration(dir_names, port_nums, ip_addrs);
             put_files(argv[i], dir_names, port_nums, ip_addrs);
+            
         }
     }
     else{
         error("Invalid commmand: choose either list, get, or put");
     }
-    //
-
 	return 0;
 }

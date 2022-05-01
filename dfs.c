@@ -2,25 +2,12 @@
 ** server.c -- a stream socket server demo
 */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
+
 #include "helpers.h"
 
-//#define PORT "3490"  // the port users will be connecting to
-
 #define BACKLOG 10	 // how many pending connections queue will hold
-#define FILE_SIZE_PART 1
-#define HEADER_SIZE 256
 
 void parse_header(char* header_buf, char* parsed_elements[]){
 	printf("Header buf: %s\n", header_buf);
@@ -49,16 +36,8 @@ void put_file(int sockfd, char* dir_name, char* filename, char* chunk_size){
 	}
 
 	int file_chunk_size = atoi(chunk_size);	
-	char recvbuf[FILE_SIZE_PART];
-	bzero(recvbuf, FILE_SIZE_PART);
-
-	int num_recieves = file_chunk_size/FILE_SIZE_PART + ((file_chunk_size % FILE_SIZE_PART) != 0);
-	for(int i=0; i< num_recieves; i++){
-		// write each recieve to a file;
-		recv(sockfd, recvbuf, FILE_SIZE_PART, 0);
-		fwrite(recvbuf, 1, FILE_SIZE_PART, fp);
-		bzero(recvbuf, FILE_SIZE_PART);
-	}
+	int num_r = recv_write_file(sockfd, fp, file_chunk_size);
+    printf("Num bytes recv: %d\n", num_r);
 
 	fclose(fp);
 }
@@ -71,42 +50,23 @@ void get_file(int sockfd, char* filename, char* dirname){
 	strcat(full_filepath, "/");
 	strcat(full_filepath, filename);
 
-	int filesize;
-	FILE* fp = fopen(full_filepath, "r");
+	FILE* fp = fopen(full_filepath, "r");  //r
 	if(fp == NULL){
 		error("Could not open file\n");
 	}
 
-	fseek(fp, 0L, SEEK_END);
-    filesize = ftell(fp);
-    fseek(fp, 0L, SEEK_SET);
+	int filesize = get_file_size(fp);
 
 	// first want to send to client the filesize
-	char filesize_str[32];
-    bzero(filesize_str, 32);
+	char filesize_str[FILE_SIZE_STR];
+    bzero(filesize_str, FILE_SIZE_STR);
     sprintf(filesize_str, "%d", filesize);
 
-	send(sockfd, filesize_str, 32, 0);
+	int file_size_string = FILE_SIZE_STR;
+	sendall(sockfd, filesize_str, &file_size_string);
 
-    int num_sends = filesize/FILE_SIZE_PART + ((filesize % FILE_SIZE_PART) != 0); 
-    char file_contents[FILE_SIZE_PART];
-
-    for(int i=0; i < num_sends; i++){
-        bzero(file_contents, FILE_SIZE_PART);
-        int n = fread(file_contents, 1, FILE_SIZE_PART, fp);
-
-        if( n < 0){
-            error("Could not fread\n");
-        }
-
-        if(send(sockfd, file_contents, n, 0) < 0){
-            error("Send to client failed\n");
-        }
-    }
-
-	// find filesize
-	// read into chunksize
-	// send each to client
+	int num_s = read_file_send(sockfd, fp, filesize);
+    printf("Num bytes sent: %d\n", num_s);
 }
 
 void list_files(int sockfd, char* dirname){
@@ -120,8 +80,6 @@ void list_files(int sockfd, char* dirname){
 	bzero(ls_command, HEADER_SIZE);
 	strcpy(ls_command, "ls -R ");
 	strcat(ls_command, dirname);
-
-	printf("ls_command: %s\n", ls_command);
 
 	FILE *ls_fp = popen(ls_command, "r");
 	if(ls_fp == NULL){
@@ -231,7 +189,6 @@ int main(int argc, char* argv[])
 	if (bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen) == -1) {
 		error("Error in bind");
 	}
-
 
 	freeaddrinfo(servinfo); // all done with this structure
 

@@ -1,9 +1,10 @@
-list
+# Distributed File Client/Server
 
---> Final list is stored in final_list.txt
+## How it works
 
+## Run
 
-get
+## Clean
 
+## Notes
 
-put
