@@ -8,7 +8,7 @@ run_server:
 	./dfs dfs4 10004 &
 
 run_client:
-	./dfc put hamlet.txt rabbit.jpg piano.pdf
+	./dfc get hamlet.txt rabbit.jpg piano.pdf
 
 client: dfc.c
 	$(COMPILER) $(FLAGS) -o dfc dfc.c -lcrypto -lssl
@@ -18,7 +18,7 @@ server: dfs.c
 
 clean_client:
 	rm dfc
-	
+
 clean_server:
 	killall dfs
 	rm dfs

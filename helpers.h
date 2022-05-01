@@ -11,7 +11,7 @@
 #include <fcntl.h>
 #include <openssl/md5.h>
 
-#define FILE_SIZE_PART 1000 // maybe change this
+#define FILE_SIZE_PART 1000 // maybe change thisback to 1
 #define HEADER_SIZE 256
 #define FILE_SIZE_STR 32
 
@@ -87,10 +87,25 @@ int read_file_send(int sockfd, FILE* file_fp, int file_chunk_size){
 int recv_write_file(int sockfd, FILE* fp, int file_chunk_size){
 	int total_num_written = 0;
     
-    int num_recieves = file_chunk_size/FILE_SIZE_PART + ((file_chunk_size % FILE_SIZE_PART) != 0);
+    //int num_recieves = file_chunk_size/FILE_SIZE_PART + ((file_chunk_size % FILE_SIZE_PART) != 0);
     char recvbuf[FILE_SIZE_PART];
     int n;
+    int nw;
 
+    while(total_num_written < file_chunk_size){
+        bzero(recvbuf, FILE_SIZE_PART);
+        n = recv(sockfd, recvbuf, FILE_SIZE_PART, 0);
+        
+        if(n < 0){
+            error("Error in recv\n");
+        }
+        if((nw = fwrite(recvbuf, 1, n, fp)) < 0){
+            error("Error in fwrite\n");
+        }		
+        total_num_written += n;
+    }
+
+    /*
     for(int i=0; i< num_recieves; i++){
         bzero(recvbuf, FILE_SIZE_PART);
 
@@ -103,7 +118,8 @@ int recv_write_file(int sockfd, FILE* fp, int file_chunk_size){
             error("Error in fwrite\n");
         }		
         total_num_written += n;
-	}    
+	} 
+    */   
 
     return total_num_written;
 }

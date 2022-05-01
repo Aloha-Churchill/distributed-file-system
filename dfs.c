@@ -110,7 +110,14 @@ void handle_client(int sockfd){
 	// first read header that client sends
 	char header_buf[HEADER_SIZE];
 	bzero(header_buf, HEADER_SIZE);
-	recv(sockfd, header_buf, HEADER_SIZE, 0);
+
+	int n = recv(sockfd, header_buf, HEADER_SIZE, 0);
+	if(n < 0){
+		error("Error in recieving header\n");
+	}
+	if(n != HEADER_SIZE){
+		printf("Did not recieve enough of header\n");
+	}
 
 	char* parsed_elements[4];
 	parse_header(header_buf, parsed_elements);
