@@ -16,16 +16,23 @@ Implementation of client and server for a distributed file system with N=4 serve
 server [FOLDER] [IP]:[PORT]
 
 2. In Makefile, you can run get, put, or list. Here are some examples
+
 ```./dfc put rabbit.jpg hamlet.txt piano.pdf```
+
 ```./dfc get rabbit.jpg hamlet.txt piano.pdf```
+
 ```./dfc list```
 
 3. Run server
+
 ```make server```
+
 ```make run_server```
 
 4. Run client
+
 ```make client```
+
 ```make run_client```
 
 ### Example localhost configuration
@@ -33,6 +40,7 @@ To run all servers on localhost, define each server with a different folder and 
 
 ## Clean
 ```make clean_server```
+
 ```make clean_client```
 
 ## Notes
