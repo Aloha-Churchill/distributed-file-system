@@ -1,5 +1,14 @@
 /*
-** server.c -- a stream socket server demo
+
+Distributed file server. Commands are get, list, put. Current implementation is designed for
+4 servers.
+
+put: server stores file chunk into given directory
+list: server sends list of files in directory
+get: server sends selected filename
+
+Base server connection from Beej's guide. 
+
 */
 
 #include <sys/wait.h>
@@ -9,6 +18,9 @@
 
 #define BACKLOG 10	 // how many pending connections queue will hold
 
+/*
+Parses command given from client.
+*/
 void parse_header(char* header_buf, char* parsed_elements[]){
 	printf("Header buf: %s\n", header_buf);
 	const char delimiters[] = " \n";
@@ -22,6 +34,9 @@ void parse_header(char* header_buf, char* parsed_elements[]){
 	}	
 }
 
+/*
+Writes a file in the directory given
+*/
 void put_file(int sockfd, char* dir_name, char* filename, char* chunk_size){
 	// open a new file with name filename in directory specified
 	char full_filepath[HEADER_SIZE];
@@ -42,6 +57,9 @@ void put_file(int sockfd, char* dir_name, char* filename, char* chunk_size){
 	fclose(fp);
 }
 
+/*
+Sends a file in the directory given
+*/
 void get_file(int sockfd, char* filename, char* dirname){
 	// open file, read and then send to client
 	char full_filepath[HEADER_SIZE];
@@ -57,7 +75,7 @@ void get_file(int sockfd, char* filename, char* dirname){
 
 	int filesize = get_file_size(fp);
 
-	// first want to send to client the filesize
+	// first send client the filesize
 	char filesize_str[FILE_SIZE_STR];
     bzero(filesize_str, FILE_SIZE_STR);
     sprintf(filesize_str, "%d", filesize);
@@ -69,6 +87,9 @@ void get_file(int sockfd, char* filename, char* dirname){
     printf("Num bytes sent: %d\n", num_s);
 }
 
+/*
+Lists filenames in the directory given
+*/
 void list_files(int sockfd, char* dirname){
 	printf("In list files\n");
 	//loop through all directories and remove all instances of that filename
@@ -106,6 +127,9 @@ void list_files(int sockfd, char* dirname){
 	pclose(ls_fp);	
 }
 
+/*
+Function called after fork to handle client
+*/
 void handle_client(int sockfd){
 	// first read header that client sends
 	char header_buf[HEADER_SIZE];
