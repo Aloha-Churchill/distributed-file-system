@@ -22,7 +22,6 @@ Base server connection from Beej's guide.
 Parses command given from client.
 */
 void parse_header(char* header_buf, char* parsed_elements[]){
-	printf("Header buf: %s\n", header_buf);
 	const char delimiters[] = " \n";
 	char* element = strtok(header_buf, delimiters);
 	int num_input_strings = 0;
@@ -51,8 +50,7 @@ void put_file(int sockfd, char* dir_name, char* filename, char* chunk_size){
 	}
 
 	int file_chunk_size = atoi(chunk_size);	
-	int num_r = recv_write_file(sockfd, fp, file_chunk_size);
-    printf("Num bytes recv: %d\n", num_r);
+	recv_write_file(sockfd, fp, file_chunk_size);
 
 	fclose(fp);
 }
@@ -83,15 +81,14 @@ void get_file(int sockfd, char* filename, char* dirname){
 	int file_size_string = FILE_SIZE_STR;
 	sendall(sockfd, filesize_str, &file_size_string);
 
-	int num_s = read_file_send(sockfd, fp, filesize);
-    printf("Num bytes sent: %d\n", num_s);
+	read_file_send(sockfd, fp, filesize);
+
 }
 
 /*
 Lists filenames in the directory given
 */
 void list_files(int sockfd, char* dirname){
-	printf("In list files\n");
 	//loop through all directories and remove all instances of that filename
 	char send_fin[HEADER_SIZE];
 	bzero(send_fin, HEADER_SIZE);
@@ -118,7 +115,7 @@ void list_files(int sockfd, char* dirname){
 			strcat(file_dir, " ");
 			strcat(file_dir, dirname);
 			strcat(file_dir, "\n");
-			// printf("curr_file: %s\n", curr_file);
+		
 			send(sockfd, file_dir, HEADER_SIZE, 0);
 		}
 		i = i+1;

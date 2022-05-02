@@ -8,7 +8,7 @@ run_server:
 	./dfs dfs4 10004 &
 
 run_client:
-	./dfc get hamlet.txt rabbit.jpg piano.pdf
+	./dfc list
 
 client: dfc.c
 	$(COMPILER) $(FLAGS) -o dfc dfc.c -lcrypto -lssl

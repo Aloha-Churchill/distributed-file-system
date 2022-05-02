@@ -78,7 +78,7 @@ Sends a put command to the client
 */
 void send_put(int sockfd, char* filename, char* folder, FILE* file_fp, int file_chunk_size){
     send_put_header(sockfd, filename, folder, file_chunk_size);
-    int num_s = read_file_send(sockfd, file_fp, file_chunk_size);
+    read_file_send(sockfd, file_fp, file_chunk_size);
 }
 
 /*
@@ -107,7 +107,7 @@ void send_get(int sockfd, char* dir_name, char* filename, FILE* fp){
     int filesize = atoi(filesize_str);
 
     // recieve and write file
-    int num_r = recv_write_file(sockfd, fp, filesize);
+    recv_write_file(sockfd, fp, filesize);
 }
 
 /*
@@ -122,8 +122,6 @@ void send_list(int sockfd, char* dir_name, FILE* list_fp){
     strcat(list_request, dir_name);
     strcat(list_request, "\n");
 
-    printf("Header is: %s\n", list_request);
-
     int header_size = HEADER_SIZE;
     sendall(sockfd, list_request, &header_size);
 
@@ -135,11 +133,9 @@ void send_list(int sockfd, char* dir_name, FILE* list_fp){
             error("Error in recv\n");
         }
         if(strstr(filenames, "\r\n\r\n") != NULL){
-            printf("stop from server\n");
             break;
         }
 
-        printf("client got: %s\n", filenames);
         fwrite(filenames, strlen(filenames), 1, list_fp);
         bzero(filenames, HEADER_SIZE);
     } 
@@ -400,8 +396,6 @@ void get_files(char* filename, char* dir_names[], char* port_nums[], char* ip_ad
             }
 
             for(i=0; i<NUM_SERVERS; i++){
-                printf("dirname: %s\n", dirname);
-                printf("dir_names[i]: %s\n", dir_names[i]);
                 if(strcmp(dirname, dir_names[i]) == 0){
                     serv_index = i;
                 }
@@ -456,8 +450,6 @@ void put_files(char* filename, char* dir_names[], char* port_nums[], char* ip_ad
         int index = modulo(i-hash, NUM_SERVERS);
 
         send_filename[strlen(filename)] = indices[index];
-        printf("index: %d\n", index);
-        printf("send_filename: %s\n", send_filename);
 
         fseek(file_fp, file_positions[index], SEEK_SET);
         int file_chunk_size = file_sizes[index];
